@@ -128,15 +128,16 @@ Extend Step 6 report with:
 
 ```
 Ensemble (N = <n>, n_eff = <neff>):
-  Chain 1 (<framing>): H1 ≈ <p1>%   w = <w1>
-  Chain 2 (<framing>): H1 ≈ <p2>%   w = <w2>
+  Chain 1 (<framing>): H1: [<LL1>%, <UU1>%]  (median: <p1>%)   w = <w1>
+  Chain 2 (<framing>): H1: [<LL2>%, <UU2>%]  (median: <p2>%)   w = <w2>
   ...
   ρ̄ = <rho>   a = <a>
 
-Pooled (extremized log-odds): H1 ≈ <p_pool>%
-  Across-chain band (5-95): [<L>%, <U>%]
-  Within-chain band  (5-95): [<l>%, <u>%]
-  Median-pool sanity:        H1 ≈ <p_median>%
+Pooled (extremized log-odds; band-first, suppress median if `UU − LL > 30pp`):
+  H1: [<L>%, <U>%]                           (median: <p_pool>%)
+  Across-chain band (5-95 of chain medians): [<L_ac>%, <U_ac>%]
+  Within-chain band (mean of MC bands):      [<L_w>%, <U_w>%]
+  Median-pool sanity (median of chain odds): <p_median>%
 
 Caveats:
   - <chains with shared evidence + ρ value>

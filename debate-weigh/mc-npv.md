@@ -7,6 +7,10 @@ For "would X or Y be more cost-effective over T years".
 2. For each option, list cash flows: purchase, maintenance, replacement,
    resale, externalities.
 3. Each flow as distribution: triangular(low, mode, high) by default.
+   When no modal info is available (only `[low, high]` band), use
+   Beta(α, β) via method of moments instead — see [[SKILL]] Step 6
+   substep 1 for the MoM formulas. Triangular preferred when a mode
+   can be defended; Beta when only a range is known.
 4. Monte Carlo N=5000:
      for each draw, sample all flows, compute
        NPV = Σ_t CF_t / (1+ρ)^t

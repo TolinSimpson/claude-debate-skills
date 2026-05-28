@@ -89,9 +89,9 @@ After Step 6 ledger, append **Plain English** section. Two lines content,
 hard cap. H labels in plain words.
 
 ```
-Plain English
-  <XX>% — <H1 plain>
-  <YY>% — <H2 plain>
+Plain English (band-first; suppress median to `indeterminate` if band width > 30pp)
+  [LL-UU]% — <H1 plain>   (median: <XX>%)
+  [LL-UU]% — <H2 plain>   (median: <YY>%)
 ```
 
 No bottom-line sentence, no "why winner", no caveats — those live above.
@@ -120,7 +120,9 @@ prior (not 1:1). Tracks drift.
 
 After the first chain completes, check posterior:
 
-- If `p_H1 ∈ [35%, 65%]` OR within-chain MC band wider than 25 pp →
+- If posterior band straddles 50% OR `UU − LL > 30pp` (band-aware
+  near-tie trigger, replaces earlier point-based `p_H1 ∈ [35%, 65%]`)
+  OR within-chain MC band wider than 25 pp →
   **auto-spawn 2 adversarial chains**:
   - Chain B steelmans H1 maximally (uses H1-favouring reference class,
     H1-supporting first principles, H1-friendly evidence pool first).
@@ -135,5 +137,5 @@ After the first chain completes, check posterior:
 
 - Always report **both** pooled point and across-chain spread.
 
-If `p_H1` outside `[35%, 65%]` after first chain AND MC band narrow,
-single chain is sufficient; do not spawn.
+If posterior band lies entirely on one side of 50% AND width ≤ 30pp
+AND MC band narrow, single chain is sufficient; do not spawn.

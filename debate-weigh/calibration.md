@@ -41,6 +41,22 @@ Periodic self-audit using `calibration.jsonl`:
      [[ensemble]] by `0.5 · gap_b`.
    - Persistent miscalibration (3+ milestone reports unchanged): force
      wider reference-class search for priors.
+
+8. **Platt scaling post-hoc** (corpus-driven, runs at calibration
+   milestone OR after [[backtest]] Step BT6 completes). If the
+   reliability curve has slope ≠ 1 (i.e. predicted probabilities are
+   systematically biased AFTER bin adjustments), fit:
+     p̂_calibrated = σ(A · logit(p̂) + B)
+   via 2-parameter logistic regression on resolved entries:
+     z_i = logit(p̂_i),  y_i = outcome_i
+     fit (A, B) by minimizing logistic loss.
+   Persist `(A, B)` in `backtest/fitted_constants.json` under keys
+   `platt_A`, `platt_B`. Apply at report time: emit BOTH raw posterior
+   `p̂` AND Platt-calibrated posterior `σ(A · logit(p̂) + B)` in the
+   final report when a calibration milestone has shown gap > 0.05. If
+   `A ≈ 1` and `B ≈ 0`, suppress Platt output (no correction needed).
+   Fallback: if `sklearn` unavailable during backtest, persist
+   `(A=1, B=0)` and flag `platt_skipped = true` in calibration entries.
 ```
 
 Report after milestones (10, 25, 50, 100 resolved entries). Milestone

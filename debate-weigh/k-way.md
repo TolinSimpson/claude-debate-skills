@@ -42,12 +42,25 @@ Per evidence E:
 1. Elicit `P(E | H_i)` for every i (NOT just two). Same range +
    reliability + source-checklist machinery as Step 3.
 
-2. Update:
+2. Update (additive noisy-channel form, matching SKILL.md Step 3
+   substep 2 — replaces exponent form):
 
    ```
-   π_i^new ∝ π_i · P(E | H_i)^r_E·(1 − overlap_E)
+   # mixture against the simplex mean (the k-way analogue of "noise carries LR=1")
+   P̃(E | H_i) = r_E · P(E | H_i) + (1 − r_E) · (Σ_j P(E | H_j) / k)
+
+   # overlap discount, additive form
+   P_used(E | H_i) = P̃(E | H_i) · (1 − overlap_E)
+                    + (Σ_j P̃(E | H_j) / k) · overlap_E
+
+   π_i^new ∝ π_i · P_used(E | H_i)
    then renormalize:  π_i^new := π_i^new / Σ_j π_j^new
    ```
+
+   At `r_E = 1, overlap_E = 0` this collapses to the clean update
+   `π_i^new ∝ π_i · P(E | H_i)`. At `r_E = 0` or `overlap_E = 1` the
+   update degenerates to no-op (uniform over the simplex mean), matching
+   the binary case where `LR_used → 1`.
 
 3. **Pairwise LR diagnostic.** Compute `L[i,j] = P(E|H_i)/P(E|H_j)` for
    all pairs. Flag pairs with `L[i,j] ∈ [0.9, 1.11]` — E does not

@@ -16,7 +16,13 @@ description: >
 # Debate Weigher
 
 Route query to right method. Bookkeep priors, evidence, and uncertainty.
-Show work each iteration.
+
+**Output discipline.** Show the work, not the prose around the work. Tables, not
+paragraphs. One line per evidence piece. No restating what each column means.
+No "let me walk you through" framing. Final report follows the fixed shape in
+Step 6 verbatim — no extra sections, no narration. Targets: ledger ≤1 line per
+E; full Bayes-route output ≤ ~40 lines for ≤10 evidence pieces. If you find
+yourself writing a paragraph that isn't the steelman, delete it.
 
 This file holds the router + the Bayes route (default). Other routes and
 optional machinery live in sibling files in this directory. When the
@@ -36,6 +42,10 @@ it are binding.
 | `k-way.md` | Appendix H — k-way Bayes (≥3 hypotheses) |
 | `tournament.md` | Appendix I — Tournament (BT over hypotheses) |
 | `steelman-audit.md` | Appendix J — Steelman bias audit |
+| `multi-agent-elicit.md` | Appendix K — Parallel N=4 elicitor ensemble |
+| `ref-class.md` | Appendix L — Reference-class enumeration |
+| `bias-audit-agent.md` | Appendix M — Strictly isolated bias auditor |
+| `backtest.md` | Offline backtest harness (corpus-driven r-formula fit + Platt scaling) |
 | `autonomous.md` | Autonomous mode (Rules A1-A7) |
 
 ## Step 0 — Query router
@@ -130,16 +140,20 @@ If user's framing is mushy, propose a sharpened version and confirm.
 
 Default `1:1` only if no reference class exists. Otherwise:
 
-1. **Name the reference class.** "Claims of this type historically resolved
-   in favour of H1-shaped claims at rate p_ref." Examples:
-   - "Hindsight reversals on revered historical figures in field Y, last
-     50 years" → base rate of revision.
-   - "Consumer-product longevity claims by manufacturer vs independent
-     test" → base rate of agreement.
-2. **Set prior = reference-class base rate**, expressed as odds.
-3. **State source of base rate.** If derived from a corpus, name the corpus
-   and date. If estimated, mark `prior_quality = low` for caveats.
-4. **Confirm with user** or, in autonomous mode, log and proceed.
+1. **Enumerate K ≤ 4 candidate reference classes.** Spawn the ref-class
+   enumerator sub-agent per [[ref-class]] Step L1. Returns ranked list
+   `{RC_1, …, RC_K}` with base rate + corpus + quality per class.
+2. **Carry K parallel prior chains** per [[ref-class]] Step L2 — same
+   H1/H2 definitions, same FP list, same evidence pool, prior differs
+   only.
+3. **Envelope the K posteriors** per [[ref-class]] Step L3. The envelope
+   widens the Step 6 `[LL, UU]` band by the spread across reference
+   classes — the prior-choice contribution becomes visible rather than
+   hidden.
+4. **Fallback.** If the enumerator returns < 2 defensible classes, or
+   the `Agent` tool is unavailable, set prior `1:1` per the original
+   default and log `(prior_mode = no-ref-class)` or
+   `(ref_class_mode = single)` per [[ref-class]] Step L5/L6.
 
 State prior as odds and percent. Disagreements about priors are real —
 surface now, not at end.
@@ -174,6 +188,52 @@ First principles:
 **Priority rule.** First-principles derivation outranks sources. Override
 only with a defect in the derivation itself, not by citation count.
 
+### Step 2.5b — FP auditor sub-agent
+
+The list produced above is LLM-generated. The auditor classifies each
+proposed FP independently, in isolated context (no H1/H2, no evidence,
+no running posterior — same isolation discipline as
+[[bias-audit-agent]] Step M2).
+
+Spawn one `Agent` call, type `general-purpose`. Payload: ONLY the FP
+list. System-prompt fragment — verbatim:
+
+```
+Classify each proposed first principle into one of three tiers. You
+do NOT see the hypotheses these principles bear on; classify on
+content alone.
+
+  tier-1: physical law / mathematical identity / conservation rule /
+          definitional constraint. Cannot be wrong without overturning
+          a deeper system.
+  tier-2: widely-accepted empirical regularity with low controversy
+          (e.g. base rates derivable from counting in a corpus).
+  tier-3: claimed FP but actually a source-derived belief or
+          consensus assertion masquerading as a principle.
+
+Return:
+[
+  {"fp_id": "FP1", "tier": 1|2|3, "rationale": "<one line>"},
+  ...
+]
+```
+
+Apply the result before the evidence loop:
+
+```
+- tier-3:  strip from FP list. Do not use to cap P(E | H) bounds. Move
+           to caveats with note "(claimed FP rejected as tier-3)".
+- tier-2:  retain, but compatibility-kill effect downweighted by 0.5.
+           If FP_i would set π_j = 0 in [[k-way]] Step H2 or collapse a
+           side in the Bayes route, instead halve the affected prior
+           mass rather than zeroing it.
+- tier-1:  retain at full strength. Cap on P(E | H) bounds is binding
+           per the Priority rule above.
+```
+
+If the `Agent` tool is unavailable, all FPs are conservatively treated
+as tier-2 and the caveat `(fp_audit_mode = inline)` is logged.
+
 ### Step 3 — Iterate evidence
 
 For each piece of evidence E:
@@ -199,8 +259,14 @@ For each piece of evidence E:
    Score `s = (count satisfied) / 8`. Then:
 
    ```
-   r = clamp(0.1, 1.0,  0.2 + 0.8·s − 0.05·hops − 0.3·motive_flag)
+   r = clamp(0.1, 1.0,  C0 + C1·s − C2·hops − C3·motive_flag)
    ```
+
+   Constants `(C0, C1, C2, C3)` fitted by [[backtest]] Step BT5 against
+   resolved-question corpora. Pre-backtest defaults (`TBD-backtest`):
+   `C0 = 0.2`, `C1 = 0.8`, `C2 = 0.05`, `C3 = 0.3`. Final fitted values
+   live in `backtest/fitted_constants.json` and are mirrored into this
+   file after the backtest runs.
 
    - `hops` = number of hands the claim passed through (0 if primary).
    - `motive_flag` = 1 if source benefits directly from claim winning,
@@ -208,20 +274,35 @@ For each piece of evidence E:
    - For **direct observation** or **first-principles derivation**: skip
      checklist, set `r = 1.0`.
 
-   Apply: `LR_used = LR_raw ^ r`.
+   Apply additive noisy-channel mixture (model E as `r·E_clean + (1−r)·noise`
+   where noise carries `LR = 1`; precedent: [[dempster-shafer]] Step 2.b
+   `m(A) = r·s`):
 
-3. **Source the `P(E | H)` numbers empirically when possible.** Order of
-   preference:
+   ```
+   LR_used = r · LR_raw + (1 − r) · 1.0
+   ```
+
+3. **Elicit `P(E | H)` via the N=4 multi-agent ensemble** per
+   [[multi-agent-elicit]]. Replaces single-LLM elicitation — same
+   model eliciting both sides is the dominant correlated-hallucination
+   path.
+
+   The ensemble returns per-side `{median, q25, q75}` from agents
+   `{steelman-H1, steelman-H2, red-team, null-prior}`. Use:
+   - median → point estimate for the ledger
+   - disagreement-weighted IQR widening → range for Step 6 Beta MoM
+
+   Source preference within each agent (in this order):
    1. Measured frequency in a corpus / database / known base rate. Cite.
-   2. First-principles derivation (probabilistic upper/lower bound).
+   2. First-principles derivation (probabilistic upper/lower bound),
+      capped by tier-1/tier-2 FPs per Step 2.5b.
    3. Gut estimate. Mark with `est` flag and add to caveats.
 
-   Ask both sides the same question:
-   - "If H1 were true, how often would E appear? → P(E | H1)"
-   - "If H2 were true, how often would E appear? → P(E | H2)"
-
-   Each `P(E | H)` carries a **range** `[low, high]`, not a point. Use
-   point = midpoint, carry range for Step 6 Monte Carlo.
+   If `disagreement > 0.3` across the four agents on either side, flag
+   the row `(elicit_quality = low)` per [[multi-agent-elicit]] Step K3.
+   If the `Agent` tool is unavailable, fall back to single-chain
+   elicitation per [[multi-agent-elicit]] Step K4 and log
+   `(elicit_mode = single)`.
 
 4. **Compute LR_raw = P(E | H1) / P(E | H2).** Show it. Apply `r` to get
    `LR_used`. Show both.
@@ -234,14 +315,24 @@ For each piece of evidence E:
 
    ```
    overlap = max_i (shared_nodes(E, E_i) / total_nodes(E))
-   LR_used := LR_used ^ (1 − overlap)
+   LR_used := 1 + (LR_used − 1) · (1 − overlap)
    ```
+
+   Same additive noisy-channel form: at `overlap = 0` keep `LR_used`; at
+   `overlap = 1` collapse to `1` (independent contribution gone).
 
    Append nodes of E to the graph.
 
-7. **Symmetry audit.** Run the bias check on a source you *agree* with as
-   hard as on one you don't. If you would not have flagged motive when it
-   cut your way, redo the discount.
+7. **Symmetry audit.** Defer to [[bias-audit-agent]] (Appendix M). The
+   audit runs in isolated context — auditor does NOT see running
+   posterior, LRs, or chain identity — so motivated reasoning cannot
+   leak into the meta-layer. The agent returns
+   `{symmetry_violations, blind_r_failures, recommended_h}`. Apply
+   `recommended_h` at the chain log-odds layer per [[steelman-audit]]
+   J1. For any `blind_r_failure` with `|r_blind − r| > 0.2`, replace
+   chain `r` with `r_blind` and recompute the affected `LR_used`.
+   Inline self-policing fallback only if `Agent` unavailable, logged
+   `(bias_audit_mode = inline; isolation not enforced)`.
 
 8. **Update VOI estimate for next pieces.** For each candidate next E_k,
    estimate `E[|Δ posterior|]` by computing `LR_used` under midpoint of its
@@ -249,19 +340,15 @@ For each piece of evidence E:
 
 9. **Ask for next** or stop (Step 5).
 
-Ledger row format:
+Ledger row format — **one line per E**, table form:
 
 ```
-Evidence:     <one-line description>
-Source:       <direct | first-principles | reported: who>
-Checklist:    <count>/8   hops=<n>   motive_flag=<0/1>
-Reliability:  r = <0..1>
-P(E | H1):    <mid> [low, high]      P(E | H2):    <mid> [low, high]   (est? y/n)
-LR_raw:       <ratio>     LR_used:   LR_raw^r·(1−overlap) = <ratio>
-Overlap:      <0..1>      Shared nodes with: <E#…>
-Odds:         <prior> → <posterior>
-Certainty:    H1 ≈ XX%   H2 ≈ YY%
+| # | E (≤8 words) | P(E|H1) | P(E|H2) | LR_raw | r | ovl | LR_used | p(H1) |
 ```
+
+Suppress per-row source/checklist/disagreement unless `(elicit_quality = low)` or
+`(blind_r_failure)` — then emit one flag column, no prose. Internal computation
+unchanged; only output is compressed.
 
 ### Step 4 — Honesty checks
 
@@ -277,8 +364,12 @@ After every 2-3 pieces, audit:
 - Are reliability factors `r` clustered near 1 only on sources favouring
   the running posterior? Source-bias leaking into meta-layer. Re-score
   symmetrically.
-- **Blind-`r` test.** Pick `r` from checklist before checking which side E
-  favours. If you scored after seeing direction, redo.
+- **Blind-`r` test.** Deferred to [[bias-audit-agent]] Step M3
+  (isolated context). Auditor computes `r_blind` from the same 8-check
+  operational criteria without seeing the LR or running posterior. If
+  `|r_blind − r| > 0.2`, the chain swaps in `r_blind` and recomputes
+  `LR_used` for that piece. Inline retry fallback only if `Agent`
+  unavailable.
 
 ### Step 5 — Stop conditions (VOI-based)
 
@@ -296,73 +387,58 @@ Stop iterating when any of:
 
 Run Monte Carlo over the ranges from Step 3.3:
 
-1. For each E_i, sample `P(E_i | H1)` and `P(E_i | H2)` uniformly from
-   their ranges, sample `r` from `r ± 0.1` clipped to `(0, 1]`.
+1. For each E_i, fit Beta(α, β) to each `P(E_i | H)` range by method of
+   moments:
+   ```
+   μ  = mid
+   σ² = ((high − low) / 4)²
+   ν  = μ·(1−μ) / σ² − 1
+   α  = μ · ν
+   β  = (1 − μ) · ν
+   ```
+   Sample `P(E_i | H1)` and `P(E_i | H2)` from their Beta fits. Sample
+   `r` from Beta fit over `r ± 0.1` clipped to `(0, 1]`. Fallback to
+   point estimate (no sampling for that E_i) when `σ² → 0` (range
+   collapses) or when MoM yields `α ≤ 0` or `β ≤ 0`.
 2. Compute posterior odds path. Repeat N=2000.
 3. Report 5th, 50th, 95th percentile.
 
-Fixed output shape:
+Fixed output shape — **terse by default**. No prose between sections.
 
 ```
-Route: Bayes
+Route: Bayes — <≤8-word reason>
 
-Sides
-  H1: <claim>
-  H2: <claim>
+H1: <claim, ≤15 words>
+H2: <claim, ≤15 words>
 
-Prior odds: <a:b>  (H1 ≈ X%)   [ref class: <name>; quality: <high/med/low>]
+Prior: <mid>% (envelope [LL, UU]; RCs: <RC1 br%>, <RC2 br%>, …)
+FPs: <FP1 short> | <FP2 short> | …    (only those that bind a P(E|H) bound)
 
-First principles:
-  FP1: <…>
-  …
+Ledger:
+| # | E | P(E|H1) | P(E|H2) | LR | r | ovl | LR_used | p(H1) |
+| 1 | … | …       | …       | …  | … | …   | …       | …%    |
+| 2 | … | …       | …       | …  | … | …   | …       | …%    |
 
-Evidence ledger:
-  1. <E1> — LR_used <r1>   r=<r1_score>
-  2. <E2> — LR_used <r2>   r=<r2_score>
-  …
-
-Posterior odds: <a:b>
-Certainty:
-  H1 ≈ XX%   (90% band: [LL%, UU%])
-  H2 ≈ YY%
-
-Top next-VOI piece not yet run:
-  <description>   E[|Δp|] ≈ <pp>%
-
-Caveats:
-  - <prior assumption>
-  - <correlated evidence + overlap %>
-  - <any P(E|H) estimated (est) rather than measured>
-  - <fallacy-filtered E entries>
-  - <near-tie sub-debates>
-
-Calibration log entry:
-  query_id=<short hash>  posterior=<XX%>  band=[LL,UU]  date=<YYYY-MM-DD>
+Posterior: H1 [LL, UU]%  median <XX>%   (indeterminate if UU−LL > 30pp)
+Next-VOI: <E in ≤12 words>   ≈<pp>pp
+Caveats: ≤3 bullets, ≤12 words each.
+Log: id=<hash> p=<XX>% [LL,UU] <date>
 ```
 
-Round to whole percent. Carry digits internally.
+Rules:
+- Round to whole percent. Carry digits internally.
+- No section headers beyond the literal labels above.
+- Cut every word that does not change the number or the decision.
+- Per-RC posterior breakdown only if envelope width > 25pp.
+- FP block omitted entirely if no FP binds an LR.
 
-### Step 6.5 — Steelman the winner (plain English)
+### Step 6.5 — Steelman the winner
 
-After the fixed-output block above, append a steelman argument for
-whichever hypothesis has the higher posterior probability. Rules:
+Append one short paragraph for the higher-posterior side. **2–3 sentences max.**
+Plain English. No LRs, no jargon. Pull only from top-2 weighted ledger rows + binding FPs;
+no new claims. Skip entirely if posterior gap < 5pp AND user did not request steelman.
 
-- Plain English. No probabilities, no LRs, no jargon from the ledger.
-- Strongest-possible case for the winning side — present it as a
-  reasonable person who believes it would argue it, not as a hedged
-  summary.
-- Pull substance from the top-weighted evidence and first principles
-  used above; do not introduce new claims that were not in the ledger.
-- 3–6 sentences. No bullet list. No "in conclusion".
-- If posterior is within 5 points of 50% (near-tie), say so in one
-  lead sentence, then steelman the marginal winner anyway.
-
-Fixed sub-heading:
-
-```
-Steelman for <winning H>:
-<paragraph>
-```
+Heading: `Steelman <H>:` then paragraph. No bullets.
 
 ## Guardrails
 
@@ -405,14 +481,24 @@ Prior: 1:19 favouring H2  (H1 ≈ 5%)
 Evidence 1: wet grass at dawn.
   Source: direct observation     r = 1.0
   P(E|H1) = 0.95 [0.85, 0.99]   P(E|H2) = 0.30 [0.20, 0.45]
-  LR_raw = 3.17    LR_used = 3.17
-  Odds: 1:19 → 3.17:19   (H1 ≈ 14%)
+  LR_raw  = 3.17
+  Reliability mixture: 1.0·3.17 + 0·1 = 3.17
+  Overlap = 0 (first piece)     LR_used = 3.17
+  Odds: 1:19 → 3.17:19   (H1 median ≈ 14%)
 
 Evidence 2: fresh mud at field edge.
   Source: direct observation     r = 1.0    overlap with E1 = 0.4 (shared mechanism)
   P(E|H1) = 0.90 [0.75, 0.97]   P(E|H2) = 0.10 [0.03, 0.25]
-  LR_raw = 9.0     LR_used = 9.0^(1−0.4) = 3.74
-  Odds: 3.17:19 → 11.9:19   (H1 ≈ 39%)
+  LR_raw  = 9.0
+  Reliability mixture: 1.0·9.0 + 0·1 = 9.0
+  Overlap discount:    LR_used = 1 + (9.0 − 1)·(1 − 0.4) = 1 + 8·0.6 = 5.8
+  Odds: 3.17:19 → 18.4:19   (H1 median ≈ 49%)
+
+Step 6 (band-first, Beta MoM over the ranges above, 2000 draws):
+  H1: [31%, 67%]            (median: 49%)
+  H2: [33%, 69%]            (median: 51%)
+  Band width 36pp > 30pp threshold → median labelled "indeterminate" in
+  final report; bands carry the signal.
 ```
 
 ## Quick reference
@@ -424,10 +510,10 @@ Evidence 2: fresh mud at field edge.
 | Weight of one E | `LR = P(E|H1) / P(E|H2)` |
 | Combine evidence | multiply LRs (with overlap discount if correlated) |
 | Stop early | VOI floor: `E[|Δp|] < 2pp` AND `LR ∈ [0.8,1.25]` |
-| Reliability score | `r = clamp(0.1, 1.0, 0.2 + 0.8·(checks/8) − 0.05·hops − 0.3·motive)` |
-| Apply bias discount | `LR_used = LR_raw ^ r ^ (1−overlap)` |
+| Reliability score | `r = clamp(0.1, 1.0, C0 + C1·(checks/8) − C2·hops − C3·motive)` — constants from [[backtest]] (TBD defaults `0.2, 0.8, 0.05, 0.3`) |
+| Apply bias discount | `LR_used = r·LR_raw + (1−r)·1`, then `LR_used := 1 + (LR_used−1)·(1−overlap)` |
 | Principle vs source | first principle wins unless derivation broken |
-| Uncertainty band | Monte Carlo over `P(E|H)` ranges + `r ± 0.1`, 2000 draws |
+| Uncertainty band | Monte Carlo over `P(E|H)` Beta(α,β) via method-of-moments + `r ± 0.1` Beta, 2000 draws (see Step 6) |
 | Reference-class prior | base rate of class, not 1:1 default |
 | Pool N chains | `odds_pool = (Π odds_i)^(1/n_eff)`, then extremize with `a≈2` (see `ensemble.md`) |
 | Effective sample size | `n_eff = n / (1 + (n−1)·ρ̄)` where `ρ̄` = mean pairwise chain overlap |

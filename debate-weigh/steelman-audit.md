@@ -10,6 +10,19 @@ include adversarial steelmen.
 
 ## Step J1 — Per-chain bias checklist
 
+**Execution:** The J1 checklist is now executed by [[bias-audit-agent]]
+(Appendix M) in isolated context — the auditor does NOT see the running
+posterior, LRs, or chain identity, so motivated reasoning cannot leak
+into the haircut scoring. Inline self-policing is the fallback when the
+`Agent` tool is unavailable.
+
+The formula `h_k = clamp(0.5, 1.0, 0.4 + 0.6·s_k)` and the application
+`log(odds_k^audited) = h_k · log(odds_k^raw)` operate on the **chain
+log-odds layer**. This is orthogonal to the LR-layer additive mixture
+in [[SKILL]] Step 3 substep 2 (`LR_used = r·LR_raw + (1−r)·1`). The two
+layers do not compose by exponentiation; they apply at different stages
+of the pipeline and do not double-discount.
+
 For each chain C_k, score 0/1 on each of these:
 
 ```

@@ -1,0 +1,19 @@
+{
+  "version": "2026-05-28",
+  "seed": 42,
+  "C0": 0.20,
+  "C1": 0.80,
+  "C2": 0.05,
+  "C3": 0.30,
+  "platt_A": 1.0,
+  "platt_B": 0.0,
+  "training_brier": null,
+  "heldout_brier": null,
+  "corpus_shas": {
+    "metaculus": "TBD-after-fetch",
+    "gjopen": "TBD-after-fetch",
+    "manylabs2": "TBD-after-fetch",
+    "osf_rpp": "TBD-after-fetch"
+  },
+  "notes": "TBD-backtest scaffold. Defaults equal pre-backtest values in SKILL.md Step 3 substep 2. Run `python backtest/fit.py --refresh-corpora --seed 42` to populate from corpora."
+}
